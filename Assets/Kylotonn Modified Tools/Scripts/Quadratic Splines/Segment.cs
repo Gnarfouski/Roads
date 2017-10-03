@@ -1,42 +1,53 @@
 ﻿using MathNet.Numerics;
 using UnityEngine;
 using System.Collections.Generic;
+using System;
 
 public class Segment {
 
-    int id;
-    QuadraticPolynomial centerLine;
-    float offset;
+    public long id;
+    public QuadraticPolynomial centerLine;
+    public List<Contact> contacts;
+    public Lane parentLane;
 
-    public Segment(int id, QuadraticPolynomial qp, float offset)
+    public int selfIndex;
+    public int value;
+    public Segment predecessor;
+
+    public Segment(long id, QuadraticPolynomial qp, Lane l)
     {
         this.id = id;
         centerLine = qp;
-        this.offset = offset;
+        contacts = new List<Contact>();
+        parentLane = l;
     }
 
-    public Vector3 GetDirectionVector(Vector3 pos)
+    // used by agent to set vectors of wheel drive
+    public Tuple<Vector3, Vector3> GetDirectionVectors(Vector3 pos, float root)
+    {
+        //if (root < 0 || root > 1) return null;
+        //root = Mathf.Clamp01(root);
+
+        Vector3 tangentBound = centerLine.CalculateOuterFirstDerivative(root);
+        Vector3 offsetVector = Vector3.Cross(Vector3.up, tangentBound).normalized * -parentLane.offset;
+        Vector3 splineBound = (centerLine.CalculateOuter(root) + offsetVector) - pos;
+
+        return new Tuple<Vector3, Vector3>(tangentBound, splineBound);
+    }
+
+    public float GetOffsetDistance(Vector3 pos)
     {
         float root = GetClosestRoot(pos);
-        if (root < 0 || root > 1) return Vector3.zero;
 
-        Vector3 tangentBound = centerLine.CalculateFirstDerivative(root);
-        Vector3 offsetVector = Vector3.Cross(Vector3.up, tangentBound).normalized * offset;
-        Vector3 splineBound = pos - (centerLine.Calculate(root) + offsetVector);
-        float alpha = GetDirectionVectorPonderation(splineBound.magnitude);
+        if (root <= 0 | root >= 1) return float.PositiveInfinity;
 
-        return alpha * -splineBound + (1 - alpha) * tangentBound;
+        Vector3 offsetVector = Vector3.Cross(centerLine.CalculateFirstDerivative(root), Vector3.up).normalized * parentLane.offset;
+        //Debug.Log(root + " " + centerLine.Calculate(root) + " " + pos);
+
+        return ((centerLine.Calculate(root) + offsetVector) - pos).magnitude;    
     }
 
-    private float GetDirectionVectorPonderation(float dist)
-    {
-        //Debug.Log(dist);
-        if (dist > 5) return 1;
-        else if (dist < 0.25) return 0;
-        else return (dist / 5)*0.8f + 0.2f;
-    }
-
-    private float GetClosestRoot(Vector3 pos)
+    public float GetClosestRoot(Vector3 pos)
     {
         if (centerLine.getCoeffs()[0] != Vector3.zero)
         {
@@ -74,19 +85,19 @@ public class Segment {
 
             List<float> possibilities = new List<float>();
 
-            if (roots.Item1 != double.NaN && roots.Item1 >= 0 && roots.Item1 < 1)
+            if (roots.Item1 != double.NaN)
             {
                 if (roots.Item1 < 0) possibilities.Add(0);
                 else if (roots.Item1 > 1) possibilities.Add(1);
                 else possibilities.Add((float)roots.Item1);
             }
-            if (roots.Item2 != double.NaN && roots.Item2 >= 0 && roots.Item2 < 1)
+            if (roots.Item2 != double.NaN)
             {
                 if (roots.Item2 < 0) possibilities.Add(0);
                 else if (roots.Item2 > 1) possibilities.Add(1);
                 else possibilities.Add((float)roots.Item2);
             }
-            if (roots.Item3 != double.NaN && roots.Item3 >= 0 && roots.Item3 < 1)
+            if (roots.Item3 != double.NaN)
             {
                 if (roots.Item3 < 0) possibilities.Add(0);
                 else if (roots.Item3 > 1) possibilities.Add(1);
@@ -121,5 +132,24 @@ public class Segment {
                 Mathf.Pow(centerLine.getCoeffs()[1].y, 2) +
                 Mathf.Pow(centerLine.getCoeffs()[1].z, 2)));
         }
+    }
+
+    public override string ToString()
+    {
+        string s = "";
+        foreach (Contact c in contacts)
+            s += " - " + c.switchT + " " + c.target.id + " - ";
+        return "Segment " + id + "\n" + centerLine.ToString() + "\nContacts : " + s;
+    }
+
+    public bool CheckPath(Segment segment, int v)
+    {
+        if(v < value)
+        {
+            predecessor = segment;
+            value = v;
+            return true;
+        }
+        return false;
     }
 }

@@ -1,5 +1,7 @@
 ﻿using UnityEngine;
 using System;
+using MathNet.Numerics;
+using System.Collections.Generic;
 
 [Serializable]
 public enum DriveType
@@ -31,6 +33,7 @@ public class WheelDrive : MonoBehaviour
 	public DriveType driveType;
 
     private WheelCollider[] m_Wheels;
+    public Agent myAgent;
 
     // Find all the WheelColliders down in the hierarchy.
 	void Start()
@@ -49,9 +52,26 @@ public class WheelDrive : MonoBehaviour
 				ws.transform.parent = wheel.transform;
 			}
 		}
+
+        
 	}
 
+    private void OnDrawGizmos()
+    {
+        if (needDirection != null)
+        {
+            Gizmos.color = Color.white;
+            Gizmos.DrawSphere(transform.position + needDirection, 1);
+            Gizmos.color = Color.red;
+            Gizmos.DrawSphere(transform.position + needTangent, 1);
+            Gizmos.color = Color.green;
+            Gizmos.DrawSphere(transform.position + needOffset, 1);
+        }
+    }
+
     Vector3 needDirection = Vector3.zero;
+    Vector3 needTangent = Vector3.zero;
+    Vector3 needOffset = Vector3.zero;
     Vector3 needPosition = Vector3.zero;
 
     public void SetDirection(Vector3 v)
@@ -65,39 +85,52 @@ public class WheelDrive : MonoBehaviour
     }
 
     Vector3 lastPosition = Vector3.zero;
-    public RoadMesh parent;
+    public RoadContainer rc;
 
     public void NewCoords(Vector3 c)
     {
         needDirection = c;
     }
 
-    // This is a really simple approach to updating wheels.
-    // We simulate a rear wheel drive car and assume that the car is perfectly symmetric at local zero.
-    // This helps us to figure our which wheels are front ones and which are rear.
+    public void SetVectors(Tuple<Vector3,Vector3> v, bool laneDirection)
+    {
+        float alpha = GetDirectionVectorPonderation(v.Item2.magnitude);
+
+        needTangent = laneDirection ? -v.Item1:v.Item1;
+        needOffset = v.Item2;
+        needDirection = (1 - alpha) * needTangent.normalized + alpha * needOffset.normalized;
+    }
+
+    private float GetDirectionVectorPonderation(float dist)
+    {
+        //Debug.Log(dist);
+        if (dist > 2) return 1;
+        else if (dist < 1) return 0;
+        else return dist - 1;
+    }
+
     void Update()
 	{
-        //m_Wheels[0].ConfigureVehicleSubsteps(criticalSpeed, stepsBelow, stepsAbove);
-        //Debug.Log(transform.forward + " / " + lastDirection.normalized + Input.GetAxis("Horizontal"));
+        if (myAgent.selfIndex == 0)
+            myAgent.Update(this, true);
+        else
+            myAgent.Update(this, false);
+        //Debug.Log("wd " + needDirection.ToString() + " " + needPosition.ToString());
         float velocity = (transform.position - lastPosition).magnitude / Time.deltaTime;
         lastPosition = transform.position;
         //Debug.Log("velocity " + velocity);
         float acc = 0;
-        if (velocity < 7)
-        {
-            acc = (7 - velocity) / 7;
-        }
-
-        //parent.correctionGizmo = transform.position + needDirection + (transform.position - needPosition);
-        //parent.needGizmo = transform.position + needDirection;
-        float alpha = 0.3f;
+        if (velocity > 5)
+            acc = -1;
+        else
+            acc = Math.Min(3 - velocity,1);
 
         float angle2 = Vector3.Angle(needDirection, transform.forward);
         Vector3 cross = Vector3.Cross(needDirection, transform.forward);
         if (cross.y < 0) angle2 = -angle2;
 
         float test = Mathf.Clamp(-angle2 / 10, -1, 1);
-        //Debug.Log(test);
+        //Debug.Log(needTangent.normalized + " " + needOffset.normalized + " " + angle2 + " " + test);
 
         float angle = maxAngle * test;
 		float torque = maxTorque * acc;

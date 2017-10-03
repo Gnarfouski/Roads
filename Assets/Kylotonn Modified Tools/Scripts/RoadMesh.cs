@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using System.Collections.Generic;
+using System.Xml;
 
 [ExecuteInEditMode]
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
@@ -332,19 +333,6 @@ public class RoadMesh : MonoBehaviour
 
     Segment[] segments;
 
-    public void OnDrawGizmos()
-    {
-        if (centralQPP.Length != 0)
-        {
-            Gizmos.color = Color.white;
-            Gizmos.DrawSphere(closestGizmoPos, 1);
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawSphere(correctionGizmo, 1);
-            Gizmos.color = Color.blue;
-            Gizmos.DrawSphere(needGizmo, 1);
-        }
-    }
-
     public void OnDrawGizmosSelected()
     {
         /*Gizmos.color = new Color(1f, 0, 0, 0.5f);
@@ -502,63 +490,6 @@ public class RoadMesh : MonoBehaviour
         }
     }
 
-    private void FixedUpdate()
-    {
-
-        Vector3 current = segments[trackedS].GetDirectionVector(trackedTransform.position);
-        Vector3 next = segments[incomingS].GetDirectionVector(trackedTransform.position);
-
-        agentWD.NewCoords(current);
-        needGizmo = trackedTransform.position + current;
-
-        if(next != Vector3.zero)
-        {
-            trackedS++;
-            incomingS++;
-            if (trackedS >= segments.Length) trackedS = 0;
-            if (incomingS >= segments.Length) incomingS = 0;
-            Debug.LogWarning(trackedS + " " + incomingS + " " + segments.Length);
-        }
-    }
-
-    int trackedS = 1;
-    int incomingS = 2;
-
-    private void Start()
-    {
-        QRoadMeshGeneration G = new QRoadMeshGeneration();
-        Vector3[] realPoints = new Vector3[m_Points.Length];
-        for (int i = 0; i < realPoints.Length; i++)
-        {
-            realPoints[i] = transform.TransformPoint(m_Points[i]);
-        }
-        centralQPP = G.GetQPP(realPoints);
-
-        segments = new Segment[centralQPP.Length];
-        for (int i = 0; i < centralQPP.Length; i++)
-        {
-            segments[i] = new Segment(i, centralQPP[i],2.25f);
-        }
-
-        /*
-        segments[1].TrackedAgent = trackedTransform;
-        segments[2].IncomingAgent = trackedTransform;
-
-        segments[0].nextSegment = segments[1];
-        segments[0].previousSegment = segments[centralQPP.Length-1];
-
-        segments[centralQPP.Length-1].nextSegment = segments[0];
-        segments[centralQPP.Length-1].previousSegment = segments[centralQPP.Length - 2];
-
-        for (int i = 1; i < centralQPP.Length - 1; i++)
-        {
-            segments[i].nextSegment = segments[i + 1];
-            segments[i].previousSegment = segments[i - 1];
-        }
-                */
-
-    }
-
     public void FixRoadLine()
     {
         if (m_RoadLines == null || m_RoadLines.Length != (m_RoadCount + 1))
@@ -615,9 +546,22 @@ public class RoadMesh : MonoBehaviour
             roadwidths[i] = m_Roads[i].m_Width;
         }
 
+        bool[] directions = new bool[m_RoadCount];
+        for (int i = 0; i < m_RoadCount; i++)
+        {
+            directions[i] = m_Roads[i].m_Reverse;
+        }
+
         QRoadMeshGeneration G = new QRoadMeshGeneration();
 
-        Mesh newMesh = G.QGenerateMesh(m_Points, roadwidths, m_SegmentSize);
+        Vector3[] realPoints = new Vector3[m_Points.Length];
+        for(int i = 0; i < m_Points.Length; i++)
+        {
+            realPoints[i] = gameObject.transform.TransformPoint(m_Points[i]);
+        }
+
+        uint baseID = (uint)GetInstanceID();
+        Mesh newMesh = G.QGenerateMesh(realPoints, m_Points, roadwidths, m_SegmentSize, directions, "" + baseID.ToString());
 
         MeshFilter meshFilter = GetComponent(typeof(MeshFilter)) as MeshFilter;
         if (null != meshFilter)
@@ -874,115 +818,6 @@ public class RoadMesh : MonoBehaviour
             return m_Roads[roadIndex].m_Width;
         }
         return 0f;
-    }
-
-    public Vector3[] GetRoadPoints(int roadIndex, bool transformed = true)
-    {
-        if (roadIndex >= 0 && roadIndex < m_Roads.Length)
-        {
-            if (transformed)
-            {
-                Vector3[] points = new Vector3[m_RoadPoints[roadIndex].Length];
-
-                for (int i = 0; i < m_RoadPoints[roadIndex].Length; ++i)
-                {
-                    points[i] = transform.TransformPoint(m_RoadPoints[roadIndex][i]);
-                }
-                return points;
-            }
-            else
-            {
-                return m_RoadPoints[roadIndex];
-            }
-            /*
-			//roadIndex = m_Roads.Length - 1 - roadIndex;
-			Mesh currentMesh = mesh;
-
-			List<Vector3> roadPoints = new List<Vector3>();
-
-			int[] roadTriangles = currentMesh.GetTriangles(roadIndex);
-			int vertexCount = roadTriangles.Length;
-			for (int i = 0; i < vertexCount; i += 6)
-			{
-				//Vector3 pt1 = currentMesh.vertices[i + roadIndex * 4]; 
-				//Vector3 pt2 = currentMesh.vertices[i + roadIndex * 4 + 2];
-				Vector3 pt1 = currentMesh.vertices[roadTriangles[i]];
-				Vector3 pt2 = currentMesh.vertices[roadTriangles[i + 2]];
-				roadPoints.Add(transform.TransformPoint(pt1 + (pt2 - pt1) / 2f));
-			}
-
-			return roadPoints.ToArray();
-			*/
-        }
-        return null;
-        /*if (roadIndex >= 0 && roadIndex < m_Roads.Length)
-		{
-			List<Vector3> roadPoints = new List<Vector3>();
-			float totalWidth = GetTotalRoadWidth();
-			float width = 0f;
-			
-			for (int i = 0; i < roadIndex; ++i)
-			{
-				width += GetRoadWidth(i);
-			}
-			width += GetRoadWidth(roadIndex) / 2f;
-
-			if (null != m_SplinePoints && m_SplinePoints.Length >= 2)
-			{
-
-				Vector3 dir = transform.TransformDirection(m_SplinePoints[1] - m_SplinePoints[0]);
-				Vector3 lastPoint = m_SplinePoints[0] - dir;
-				foreach (Vector3 point in m_SplinePoints)
-				{
-					dir = point - lastPoint;
-					Vector3 right = Vector3.Cross(dir.normalized, Vector3.up);
-					right = transform.TransformDirection(right);
-					
-					Vector3 newPos = transform.TransformPoint(point) + Vector3.up * 0.5f;
-					newPos -= right * width - right * totalWidth / 2f;
-
-					roadPoints.Add(newPos);
-
-					lastPoint = point;
-				}
-			}
-
-			return roadPoints.ToArray();
-		}
-		return null;*/
-    }
-
-    public int GetLinePointCount()
-    {
-        Mesh currentMesh = mesh;
-        if (null != currentMesh)
-        {
-            return currentMesh.vertexCount / (4 * m_RoadCount);
-        }
-        return 0;
-    }
-
-    public Vector3[] GetLinePoints(int lineIndex, Vector3[] vertices = null, bool transformed = true)
-    {
-        Mesh currentMesh = mesh;
-        if (lineIndex >= 0 && lineIndex < m_RoadLines.Length && null != currentMesh)
-        {
-            if (transformed)
-            {
-                Vector3[] points = new Vector3[m_LinePoints[lineIndex].Length];
-
-                for (int i = 0; i < m_LinePoints[lineIndex].Length; ++i)
-                {
-                    points[i] = transform.TransformPoint(m_LinePoints[lineIndex][i]);
-                }
-                return points;
-            }
-            else
-            {
-                return m_LinePoints[lineIndex];
-            }
-        }
-        return null;
     }
 
     public float GetRoadLength()

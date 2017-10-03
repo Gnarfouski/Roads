@@ -68,6 +68,11 @@ public class QuadraticPolynomial
         return coeffs[0] * t * t + coeffs[1] * t + coeffs[2];
     }
 
+    public Vector3 CalculateOuter(float t)
+    {
+        return coeffs[0] * t * t + coeffs[1] * t + coeffs[2];
+    }
+
     public Vector3 CalculateFirstDerivative(float t)
     {
         if (t < 0 || t > 1)
@@ -75,6 +80,11 @@ public class QuadraticPolynomial
             Debug.LogError("Knot Vector for QP' is 0 - 1 (" + t + ")");
             return Vector3.zero;
         }
+        return firstDerivative[0] * t + firstDerivative[1];
+    }
+
+    public Vector3 CalculateOuterFirstDerivative(float t)
+    {
         return firstDerivative[0] * t + firstDerivative[1];
     }
 

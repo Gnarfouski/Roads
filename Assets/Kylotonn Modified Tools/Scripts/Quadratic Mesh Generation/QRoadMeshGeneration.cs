@@ -1,7 +1,8 @@
 ﻿using System;
-using System.Collections;
+using System.Xml;
 using System.Collections.Generic;
 using UnityEngine;
+using System.IO;
 
 #pragma warning disable 219
 
@@ -14,7 +15,109 @@ public class QRoadMeshGeneration
         return res;
     }
 
-    public Mesh QGenerateMesh(Vector3[] points, float[] wayWidths, float vertexSpacing)
+    private XmlDocument CreateCoreXMLDocument()
+    {
+        XmlDocument xmlDoc = new XmlDocument();
+        XmlNode rootNode = xmlDoc.CreateElement("Roads");
+        xmlDoc.AppendChild(rootNode);
+
+        XmlAttribute creationDate = xmlDoc.CreateAttribute("date");
+        creationDate.Value = DateTime.Now.ToShortDateString();
+        rootNode.Attributes.Append(creationDate);
+
+        return xmlDoc;
+    }
+
+    private XmlNode CreateRoadMeshNode(XmlDocument core, string name)
+    {
+        XmlNode mainNode = core.CreateElement("RM" + name);
+
+        XmlAttribute aidr = core.CreateAttribute("idr");
+        aidr.Value = name;
+        mainNode.Attributes.Append(aidr);
+
+        return mainNode;
+    }
+
+    private XmlNode CreateLaneNode(XmlDocument core, long id, float offset, float width, bool reverse)
+    {
+        XmlNode laneNode = core.CreateElement("Lane");
+
+        XmlAttribute aidl = core.CreateAttribute("idl");
+        XmlAttribute aoffset = core.CreateAttribute("offset");
+        XmlAttribute awidth = core.CreateAttribute("width");
+        XmlAttribute adirection = core.CreateAttribute("reverse");
+
+        aidl.Value = id.ToString();
+        aoffset.Value = offset.ToString();
+        awidth.Value = width.ToString();
+        adirection.Value = reverse.ToString();
+
+        laneNode.Attributes.Append(aidl);
+        laneNode.Attributes.Append(aoffset);
+        laneNode.Attributes.Append(awidth);
+        laneNode.Attributes.Append(adirection);
+
+        return laneNode;
+    }
+
+    private XmlNode CreateSegmentNode(XmlDocument core, long id, Vector3[] coeffs)
+    {
+        XmlNode segmentNode = core.CreateElement("Segment");
+
+        XmlAttribute at2x = core.CreateAttribute("t2x");
+        XmlAttribute at2y = core.CreateAttribute("t2y");
+        XmlAttribute at2z = core.CreateAttribute("t2z");
+        XmlAttribute at1x = core.CreateAttribute("t1x");
+        XmlAttribute at1y = core.CreateAttribute("t1y");
+        XmlAttribute at1z = core.CreateAttribute("t1z");
+        XmlAttribute at0x = core.CreateAttribute("t0x");
+        XmlAttribute at0y = core.CreateAttribute("t0y");
+        XmlAttribute at0z = core.CreateAttribute("t0z");
+        XmlAttribute aid = core.CreateAttribute("id");
+
+        at2x.Value = coeffs[0].x.ToString();
+        at2y.Value = coeffs[0].y.ToString();
+        at2z.Value = coeffs[0].z.ToString();
+        at1x.Value = coeffs[1].x.ToString();
+        at1y.Value = coeffs[1].y.ToString();
+        at1z.Value = coeffs[1].z.ToString();
+        at0x.Value = coeffs[2].x.ToString();
+        at0y.Value = coeffs[2].y.ToString();
+        at0z.Value = coeffs[2].z.ToString();
+        aid.Value = id.ToString();
+
+        segmentNode.Attributes.Append(at2x);
+        segmentNode.Attributes.Append(at2y);
+        segmentNode.Attributes.Append(at2z);
+        segmentNode.Attributes.Append(at1x);
+        segmentNode.Attributes.Append(at1y);
+        segmentNode.Attributes.Append(at1z);
+        segmentNode.Attributes.Append(at0x);
+        segmentNode.Attributes.Append(at0y);
+        segmentNode.Attributes.Append(at0z);
+        segmentNode.Attributes.Append(aid);
+
+        return segmentNode;
+    }
+
+    private XmlNode CreateLinkBetweenNode(XmlDocument core, long originID, long targetID)
+    {
+        XmlNode linkNode = core.CreateElement("Link");
+
+        XmlAttribute aorigin = core.CreateAttribute("origin");
+        XmlAttribute atarget = core.CreateAttribute("target");
+
+        aorigin.Value = originID.ToString();
+        atarget.Value = targetID.ToString();
+
+        linkNode.Attributes.Append(aorigin);
+        linkNode.Attributes.Append(atarget);
+
+        return linkNode;
+    }
+
+    public Mesh QGenerateMesh(Vector3[] realPoints, Vector3[] points, float[] wayWidths, float vertexSpacing, bool[] directions, string roadMeshName)
     {
         if (points == null || points.Length < 2) return null;
 
@@ -53,6 +156,119 @@ public class QRoadMeshGeneration
         // Get the central (directive) road piecewise polynom and create the way dividers point lists
 
         QuadraticPolynomial[] centralPPolynom = PathQuadraticPiecewisePolynom(points);
+        QuadraticPolynomial[] realCentralPPolynom = PathQuadraticPiecewisePolynom(realPoints);
+
+
+        XmlDocument xmlDoc = new XmlDocument();
+        //Debug.Log(Application.loadedLevelName);
+        if (File.Exists(Application.dataPath + "/" + Application.loadedLevelName + "Info.xml"))
+            xmlDoc.Load(Application.dataPath + "/" + Application.loadedLevelName + "Info.xml");
+        else
+            xmlDoc = CreateCoreXMLDocument();
+
+        XmlNode toReplace = null;
+
+        foreach (XmlNode n in xmlDoc.FirstChild.ChildNodes)
+        {
+            if (n.Name.Equals("RM" + roadMeshName)) toReplace = n;
+        }
+
+        XmlNode main = CreateRoadMeshNode(xmlDoc, roadMeshName);
+        long baseId = long.Parse(roadMeshName);
+
+        XmlAttribute anblanes = xmlDoc.CreateAttribute("nblanes");
+        XmlAttribute anbsegments = xmlDoc.CreateAttribute("nbsegments");
+
+        anblanes.Value = (wayDividers.Count - 1).ToString();
+        anbsegments.Value = (realCentralPPolynom.Length).ToString();
+
+        main.Attributes.Append(anblanes);
+        main.Attributes.Append(anbsegments);
+
+        if (toReplace != null)
+            xmlDoc.FirstChild.ReplaceChild(main, toReplace);
+        else
+            xmlDoc.FirstChild.AppendChild(main);
+
+        XmlNode anchors = xmlDoc.CreateElement("Anchors");
+        main.AppendChild(anchors);
+        foreach(Vector3 v in realPoints)
+        {
+            XmlNode pt = xmlDoc.CreateElement("Point");
+            anchors.AppendChild(pt);
+
+            XmlAttribute ax = xmlDoc.CreateAttribute("x");
+            XmlAttribute ay = xmlDoc.CreateAttribute("y");
+            XmlAttribute az = xmlDoc.CreateAttribute("z");
+
+            ax.Value = v.x.ToString();
+            ay.Value = v.y.ToString();
+            az.Value = v.z.ToString();
+
+            pt.Attributes.Append(ax);
+            pt.Attributes.Append(ay);
+            pt.Attributes.Append(az);
+        }
+
+        for (int j = 0; j < wayDividers.Count - 1; j++)
+        {
+            XmlNode lane = CreateLaneNode(
+                xmlDoc,
+                baseId * 100 + j + 1,
+                (wayDividers[j].getSidewaysShift() + wayDividers[j + 1].getSidewaysShift()) / 2,
+                Mathf.Abs(wayDividers[j].getSidewaysShift() - wayDividers[j + 1].getSidewaysShift()),
+                directions[j]);
+
+            main.AppendChild(lane);
+
+            for (int i = 0; i < realCentralPPolynom.Length; i++)
+            {
+                XmlNode segment = CreateSegmentNode(
+                    xmlDoc,
+                    (baseId * 100 + j + 1) * 1000 + i + 1,
+                    realCentralPPolynom[i].getCoeffs()
+                    );
+                lane.AppendChild(segment);
+            }
+        }
+
+        /*
+        for (int i = 0; i < centralPPolynom.Length; i++)
+        {
+            for (int j = 0; j < wayDividers.Count - 1; j++)
+            {
+                XmlNode contactNode = xmlDoc.CreateElement("Contact");
+                xmlDoc.FirstChild.AppendChild(contactNode);
+
+                XmlAttribute aidc = xmlDoc.CreateAttribute("idc");
+                XmlAttribute aorigin = xmlDoc.CreateAttribute("o");
+                XmlAttribute atarget = xmlDoc.CreateAttribute("t");
+
+                if (i != centralPPolynom.Length - 1)
+                {
+                    aidc.Value = ((j + 1) * 1000 + i).ToString() + ((j + 1) * 1000 + i + 1).ToString();
+                    aorigin.Value = ((j + 1) * 1000 + i).ToString();
+                    atarget.Value = ((j + 1) * 1000 + i + 1).ToString();
+
+                    contactNode.Attributes.Append(aidc);
+                    contactNode.Attributes.Append(aorigin);
+                    contactNode.Attributes.Append(atarget);
+                }
+                else
+                {
+                    aidc.Value = ((j + 1) * 1000 + i).ToString() + ((j + 1) * 1000).ToString();
+                    aorigin.Value = ((j + 1) * 1000 + i).ToString();
+                    atarget.Value = ((j + 1) * 1000).ToString();
+
+                    contactNode.Attributes.Append(aidc);
+                    contactNode.Attributes.Append(aorigin);
+                    contactNode.Attributes.Append(atarget);
+                }
+            }
+        }
+        */
+
+        xmlDoc.Save(Application.dataPath + "/" + Application.loadedLevelName + "Info.xml");
 
         Vector3[][] mods = new Vector3[centralPPolynom.Length][];
         Vector3[][] newPoints = new Vector3[centralPPolynom.Length][];
@@ -63,6 +279,7 @@ public class QRoadMeshGeneration
         for (int i = 0; i <= 10; i++)
         {
             mods[0][i] = Vector3.Cross(centralPPolynom[0].CalculateFirstDerivative((float)i/10), Vector3.up);
+            mods[0][i].y = 0;
             newPoints[0][i] = centralPPolynom[0].Calculate((float)i/10);
         }
 
